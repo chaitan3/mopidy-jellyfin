@@ -14,7 +14,30 @@ class JellyfinPlaylistsProvider(backend.PlaylistsProvider):
     def __init__(self, *args, **kwargs):
         super(JellyfinPlaylistsProvider, self).__init__(*args, **kwargs)
         self._playlists = {}
+        self._create_recents_playlist()
         self.refresh()
+
+    def _create_recents_playlist(self):
+        recent_num_tracks = 20
+        recent_playlist_name = 'Recents'
+
+        artists = self.backend.remote.get_all_artists()
+        all_tracks = []
+        for artist in artists:
+            artist_id = artist.get('Id')
+            tracks = self.backend.remote.lookup_artist(artist_id)
+            all_tracks.extend(tracks)
+        all_tracks.sort(key=lambda x: x.last_modified, reverse=True)
+        recent_track_ids = [track.uri.split(':')[-1] for track in all_tracks[:recent_num_tracks]]
+
+        recent_playlist_id = None
+        raw_playlists = self.backend.remote.get_playlists()
+        for playlist in raw_playlists:
+            if playlist.get('Name') == recent_playlist_name:
+                recent_playlist_id = playlist.get('Id')
+        if not recent_playlist_id:
+            recent_playlist_id = self.backend.remote.create_playlist(recent_playlist_name).get('Id')
+        self.backend.remote.replace_playlist(recent_playlist_id, recent_track_ids)
 
     def as_list(self):
         '''

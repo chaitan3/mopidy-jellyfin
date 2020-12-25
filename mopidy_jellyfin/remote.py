@@ -5,6 +5,7 @@ from mopidy_jellyfin.utils import cache
 import mopidy_jellyfin
 from .http import JellyfinHttpClient
 from unidecode import unidecode
+from datetime import datetime
 import os
 import logging
 from collections import OrderedDict, defaultdict
@@ -229,6 +230,16 @@ class JellyfinHandler(object):
 
         result = self.http.delete(url)
         return result.ok
+
+    def replace_playlist(self, playlist_id, new_ids):
+        curr_tracks = self.get_playlist_contents(playlist_id)
+        self.delete_from_playlist(playlist_id, curr_tracks, [])
+        url_params = {
+            'UserId': self.user_id,
+            'Ids': ','.join(new_ids)
+        }
+        new_url = self.api_url(f'/Playlists/{playlist_id}/Items', url_params)
+        self.http.post(new_url)
 
     def update_playlist(self, playlist_id, new_ids):
         curr_tracks = self.get_playlist_contents(playlist_id)
@@ -564,6 +575,10 @@ class JellyfinHandler(object):
             else:
                 name = f'[] - {name}'
 
+        date_created = track.get('DateCreated')
+        if date_created:
+            date_created = int(datetime.strptime(date_created[:-2],'%Y-%m-%dT%H:%M:%S.%f').timestamp())
+
         return models.Track(
             uri='jellyfin:track:{}'.format(track.get('Id')),
             name=name,
@@ -572,8 +587,9 @@ class JellyfinHandler(object):
             genre=','.join(track.get('Genres', [])),
             artists=self.create_artists(track),
             album=self.create_album(track),
-            length=self.ticks_to_milliseconds(track.get('RunTimeTicks', 0))
-        )
+            length=self.ticks_to_milliseconds(track.get('RunTimeTicks', 0)),
+            last_modified=date_created
+         )
 
     def create_album(self, item):
         """Create album object from Jellyfin item.
@@ -869,6 +885,7 @@ class JellyfinHandler(object):
         :rtype: list
         """
         url_params = {
+            'Fields': 'DateCreated',
             'SortOrder': 'Ascending',
             'Recursive': 'true',
             'IncludeItemTypes': 'Audio'
@@ -884,7 +901,7 @@ class JellyfinHandler(object):
         # sort tracks into album keys
         album_dict = defaultdict(list)
         for track in items.get('Items'):
-            album_dict[track.get('Album')].append(track)
+            album_dict[track.get('Album', 'Unknown')].append(track)
 
         # order albums in alphabet
         album_dict = OrderedDict(sorted(album_dict.items()))
